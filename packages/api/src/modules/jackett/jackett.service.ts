@@ -73,11 +73,12 @@ export class JackettService {
     );
 
     const movie = await this.libraryService.getMovie(movieId);
-    const queries = [
-      `${movie.title} ${dayjs(movie.releaseDate).format('YYYY')}`,
-      `${movie.originalTitle} ${dayjs(movie.releaseDate).format('YYYY')}`,
-    ];
-
+    const year = dayjs(movie.releaseDate).format('YYYY');
+    const queries = [`${movie.title} ${year}`];
+    const translatedOriginal = this.toLatin(movie.originalTitle);
+    if (this.isLatin(translatedOriginal)) {
+      queries.push(`${translatedOriginal} ${year}`);
+    }
     return this.search(queries, { maxSize, type: Entertainment.Movie });
   }
 
@@ -99,17 +100,22 @@ export class JackettService {
     });
 
     const titles = [tvShow.title, enTVShow.title];
-    if (this.canSearchOriginalTitle(tvShow.originCountry)) {
-      titles.push(tvShow.originalTitle);
+    const translatedOriginal = this.toLatin(tvShow.originalTitle);
+    if (this.isLatin(translatedOriginal)) {
+      titles.push(translatedOriginal);
     }
 
     const queries = uniq(titles)
       // support "American Dad!" like
+      // TODO: Non-english words like "Sezona" should be generated based on the original language of the show.
       .map((title) => title.replace('!', ''))
       .map((title) => [
+        `${title} S${tvSeason.seasonNumber}`,
         `${title} S${formatNumber(tvSeason.seasonNumber)}`,
         `${title} Season ${formatNumber(tvSeason.seasonNumber)}`,
+        `${title} Sezona ${formatNumber(tvSeason.seasonNumber)}`, 
         `${title} Saison ${formatNumber(tvSeason.seasonNumber)}`,
+        `${title} e01-e`,
       ])
       .flat();
 
@@ -141,13 +147,17 @@ export class JackettService {
     const e = formatNumber(tvEpisode.episodeNumber);
 
     const titles = [tvShow.title, enTVShow.title];
-    if (this.canSearchOriginalTitle(tvShow.originCountry)) {
-      titles.push(tvShow.originalTitle);
+    const translatedOriginal = this.toLatin(tvShow.originalTitle);
+    if (this.isLatin(translatedOriginal)) {
+      titles.push(translatedOriginal);
     }
 
     const queries = uniq(titles)
       .map((title) => [
         `${title} S${s}E${e}`,
+        `${title} S${tvEpisode.seasonNumber}E${e}`,
+        `${title} S${s}.E${e}`,
+        `${title} S${tvEpisode.seasonNumber}.E${e}`,
         `${title} Season ${s} Episode ${e}`,
         `${title} Saison ${s} Episode ${e}`,
       ])
@@ -185,8 +195,8 @@ export class JackettService {
 
       const sortedByBest = orderBy(
         flattenIndexers,
-        ['tag.score', 'quality.score', 'seeders'],
-        ['desc', 'desc', 'desc']
+        ['indexer', 'tag.score', 'quality.score', 'seeders'],
+        ['desc', 'desc', 'desc', 'desc']
       );
 
       return opts.withoutFilter ? sortedByBest : [sortedByBest[0]];
@@ -225,7 +235,8 @@ export class JackettService {
     const preferredTags = await this.paramsService.getTags();
 
     const rawResults = await mapSeries(uniq(queries), async (query) => {
-      const normalizedQuery = sanitize(query);
+      // const normalizedQuery = sanitize(query);
+      const normalizedQuery = query;
       this.logger.info('search torrents with query', {
         indexer: indexer?.title || 'all',
         query: normalizedQuery,
@@ -256,19 +267,21 @@ export class JackettService {
       )
       .filter((result) => {
         if (withoutFilter) return true;
-
         const hasAcceptableSize = result.size < maxSize;
-        const hasSeeders = result.seeders >= 5 && result.seeders > result.peers;
+        const hasSeeders = result.seeders >= 0 && result.seeders > result.peers;
         const hasTag = result.tag.score > 0;
-
+        const isEpisode = result.normalizedTitleParts.some((titlePart) =>
+          titlePart.match(/e\d+|episode|episode\d+|ep|ep\d+/) && !result.normalizedTitle.match(/ep?\d+\s*ep?\d+/)
+        );
+        this.logger.debug(
+          `${result.title}`,
+          {hasAcceptableSize:hasAcceptableSize, hasSeeders:hasSeeders, hasTag:hasTag, isEpisode:isEpisode}
+        )
         if (isSeason) {
-          const isEpisode = result.normalizedTitleParts.some((titlePart) =>
-            titlePart.match(/e\d+|episode|episode\d+|ep|ep\d+/)
-          );
           return hasAcceptableSize && hasSeeders && !isEpisode;
+        } else {
+          return hasAcceptableSize && hasSeeders && hasTag;
         }
-
-        return hasAcceptableSize && hasSeeders && hasTag;
       });
 
     this.logger.info(`found ${results.length} downloadable results`);
@@ -294,6 +307,7 @@ export class JackettService {
       normalizedTitle,
       normalizedTitleParts,
       id: result.Guid,
+      indexer:result.TrackerId,
       title: result.Title,
       quality: this.parseQuality(normalizedTitleParts, qualityParams),
       size: result.Size,
@@ -334,6 +348,22 @@ export class JackettService {
       : { label: 'unknown', score: 0 };
   }
 
+  private isLatin(title: string[]) {
+    const hasNonLatin = /[^\p{Script=Latin} .,\/#!$%\^&\*;:{}=\-_`~()]/gu;
+    return !hasNonLatin.test(title);
+  }
+  private toLatin(toTranslate: string[]) {
+    // https://github.com/stojanovic/cyrillic-to-latin/blob/master/cyrillicToLatin.js
+    // TODO: Use import
+    const cyrillic = 'А_Б_В_Г_Д_Ђ_Е_Ё_Ж_З_И_Й_Ј_К_Л_Љ_М_Н_Њ_О_П_Р_С_Т_Ћ_У_Ф_Х_Ц_Ч_Џ_Ш_Щ_Ъ_Ы_Ь_Э_Ю_Я_а_б_в_г_д_ђ_е_ё_ж_з_и_й_ј_к_л_љ_м_н_њ_о_п_р_с_т_ћ_у_ф_х_ц_ч_џ_ш_щ_ъ_ы_ь_э_ю_я'.split('_')
+    const latin = 'A_B_V_G_D_Đ_E_Ë_Ž_Z_I_J_J_K_L_Lj_M_N_Nj_O_P_R_S_T_Ć_U_F_H_C_Č_Dž_Š_Ŝ_ʺ_Y_ʹ_È_Û_Â_a_b_v_g_d_đ_e_ë_ž_z_i_j_j_k_l_lj_m_n_nj_o_p_r_s_t_ć_u_f_h_c_č_dž_š_ŝ_ʺ_y_ʹ_è_û_â'.split('_')
+    return toTranslate.split('').map(function(char) {
+      const index = cyrillic.indexOf(char)
+      if (!~index)
+        return char
+      return latin[index]
+    }).join('')
+  }
   private canSearchOriginalTitle(originalCountries: string[]) {
     // original titles may be hard to search on occidental trackers
     // they may return incorrect torrent to download
