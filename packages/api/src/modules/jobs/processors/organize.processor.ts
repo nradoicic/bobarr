@@ -59,6 +59,33 @@ export class OrganizeProcessor {
     }
   }
 
+  private random(){
+    return `${new Date().getTime()}-${Math.floor(Math.random() * 8999) + 1000}`;
+  }
+
+  private async run(command: string[]){
+    this.logger.debug(command);
+    await childCommand(command);
+  }
+
+  private async addToFilebotQueue(torrentName: string[], folderName: string[]){
+    // Filebot watch is sensitive to file creation times.
+    // To make it happy, this method copies everything to a staging directory
+    // first, then does a `move` on the whole directory which is fast.
+    const libraryPath = `/usr/library/`;
+    // const filebotQueue = path.resolve(libraryPath, "filebot/queue/");
+    // const torrentPath = path.resolve(libraryPath, "downloads/complete/", torrentName);
+    const torrentStage = path.resolve(libraryPath, "filebot/stage/", torrentName);
+    const destination = path.resolve(torrentStage, this.random(), folderName);
+    await this.run(`mkdir -p "${destination}"`);
+    // await this.run(`cp -r "${torrentPath}"* "${destination}"`);
+    // await this.run(`mv "${copyQueue}" "${filebotQueue}"`);
+
+    // Delete the directory after 15 minutes, if it's still there.
+    await new Promise(r => setTimeout(r, 15*60*1000));
+    await this.run(`rm -rf "${torrentStage}"`);
+  }
+
   @Process(OrganizeQueueProcessors.HANDLE_MOVIE)
   @Transaction()
   public async renameAndLinkMovie(
@@ -84,76 +111,9 @@ export class OrganizeProcessor {
     });
 
     const year = dayjs(movie.releaseDate).format('YYYY');
+    const torrentName = torrent.transmissionTorrent.name;
     const folderName = `${movie.title} (${year})`;
-
-    const nextName = [folderName, torrent.quality, torrent.tag.toUpperCase()]
-      .filter((str) => str.toLowerCase() !== 'unknown')
-      .join(' ');
-
-    const torrentFiles = torrent.transmissionTorrent.files.reduce<
-      Array<{ original: string; next: string }>
-    >((results, file) => {
-      const ext = path.extname(file.name);
-      const isAllowedExt = allowedExtensions.includes(ext.replace(/^\./, ''));
-      const alreadyProcessed = results.some((_) => _.original === file.name);
-
-      if (isAllowedExt && !alreadyProcessed) {
-        // find files with same extension, we will pick the largest file
-        // which should be the movie and not a sample
-        const sameExtensionFiles = torrent.transmissionTorrent.files.filter(
-          (_) => _.name.endsWith(ext)
-        );
-
-        // we have more than one file, we will pick the largest
-        if (sameExtensionFiles.length > 1) {
-          const maxSizeFile = sameExtensionFiles.reduce((result, _) =>
-            result && result.length > _.length ? result : _
-          );
-
-          return [
-            ...results,
-            { original: maxSizeFile.name, next: `${nextName}${ext}` },
-          ];
-        }
-
-        return [...results, { original: file.name, next: `${nextName}${ext}` }];
-      }
-
-      if (!isAllowedExt && !alreadyProcessed) {
-        const [fileName] = file.name.split('/').reverse();
-        return [...results, { original: file.name, next: fileName }];
-      }
-
-      return results;
-    }, []);
-
-    const newFolder = path.resolve(
-      __dirname,
-      `../../../../../../library/${LIBRARY_CONFIG.moviesFolderName}/`,
-      folderName
-    );
-
-    await childCommand(`mkdir -p "${newFolder}"`);
-    await mapSeries(torrentFiles, async (torrentFile) => {
-      await childCommand(
-        oneLine`
-            cd "${newFolder}" &&
-            ${this.getOrganizeStrategyCommand(organizeStrategy)}
-              "../../downloads/complete/${torrentFile.original}"
-              "${torrentFile.next}"
-          `
-      );
-
-      await fileDAO.save({
-        movieId,
-        path: path.join(newFolder, torrentFile.next),
-      });
-    });
-
-    if (organizeStrategy === OrganizeLibraryStrategy.MOVE) {
-      await this.transmissionService.removeTorrentAndFiles(torrent.torrentHash);
-      await torrentDAO.remove(torrent);
-    }
+    await this.addToFilebotQueue(torrentName, folderName);
 
     await movieDAO.save({
       id: movieId,
@@ -198,51 +158,10 @@ export class OrganizeProcessor {
       resourceType: FileType.EPISODE,
     });
 
+    const torrentName = torrent.transmissionTorrent.name;
     const seasonNb = formatNumber(episode.season.seasonNumber);
-    const seasonFolder = path.resolve(
-      __dirname,
-      `../../../../../../library/${LIBRARY_CONFIG.tvShowsFolderName}/`,
-      tvShow.title,
-      `Season ${seasonNb}`
-    );
-
-    const torrentFiles = torrent.transmissionTorrent.files
-      .filter((file) => {
-        const ext = path.extname(file.name);
-        return allowedExtensions.includes(ext.replace(/^\./, ''));
-      })
-      .map((file) => {
-        const ext = path.extname(file.name);
-        const next = [
-          tvShow.title,
-          `S${seasonNb}E${formatNumber(episode.episodeNumber)}`,
-          `${torrent.quality} [${torrent.tag.toUpperCase()}]`,
-        ].join(' - ');
-        return { original: file.name, next: `${next}${ext}` };
-      });
-
-    await childCommand(`mkdir -p "${seasonFolder}"`);
-    await mapSeries(torrentFiles, async (torrentFile) => {
-      await childCommand(
-        oneLine`
-          cd "${seasonFolder}" &&
-          ${this.getOrganizeStrategyCommand(organizeStrategy)}
-            "../../../downloads/complete/${torrentFile.original}"
-            "${torrentFile.next}"
-        `
-      );
-
-      await fileDAO.save({
-        episodeId,
-        path: path.join(seasonFolder, torrentFile.next),
-      });
-    });
-
-    if (organizeStrategy === OrganizeLibraryStrategy.MOVE) {
-      await this.transmissionService.removeTorrentAndFiles(torrent.torrentHash);
-      await torrentDAO.remove(torrent);
-    }
-
+    const folderName = `${tvShow.title}/Season ${seasonNb}`
+    await this.addToFilebotQueue(torrentName, folderName);
     await tvEpisodeDAO.save({
       id: episode.id,
       state: DownloadableMediaState.PROCESSED,
@@ -287,94 +206,9 @@ export class OrganizeProcessor {
     });
 
     const seasonNb = formatNumber(season.seasonNumber);
-    const seasonFolder = path.resolve(
-      __dirname,
-      `../../../../../../library/${LIBRARY_CONFIG.tvShowsFolderName}/`,
-      tvShow.title,
-      `Season ${seasonNb}`
-    );
-
-    const torrentFiles = torrent.transmissionTorrent.files.reduce(
-      (
-        results: Array<{
-          original: string;
-          ext: string;
-          episodeNb: number;
-          part?: string;
-        }>,
-        file
-      ) => {
-        const ext = path.extname(file.name);
-        const fileName = path.basename(file.name.toUpperCase());
-
-        const [, episodeNb1] = /S\d+ ?E(\d+)/.exec(fileName) || []; // Foobar_S01E01.mkv
-        const [, episodeNb2] = /\d+X(\d+)/.exec(fileName) || []; // Foobar_1x01.mkv
-        const episodeNb = episodeNb1 || episodeNb2;
-
-        const [, part] = /part ?(\d+)/.exec(fileName.toLowerCase()) || []; // Foobar_S01E01_Part1
-
-        if (episodeNb && allowedExtensions.includes(ext.replace(/^\./, ''))) {
-          return [
-            ...results,
-            {
-              ext,
-              part,
-              original: file.name,
-              episodeNb: parseInt(episodeNb, 10),
-            },
-          ];
-        }
-
-        return results;
-      },
-      []
-    );
-
-    if (torrentFiles.length === 0) {
-      this.logger.error('did not find any files in torrent');
-      this.logger.error('here are the raw torrent files (before filter)', {
-        files: torrent.transmissionTorrent.files,
-      });
-
-      throw new Error('could not find any files in torrent');
-    }
-
-    await childCommand(`mkdir -p "${seasonFolder}"`);
-    await mapSeries(torrentFiles, async (file) => {
-      const newName = [
-        tvShow.title,
-        `S${seasonNb}E${formatNumber(file.episodeNb)}`,
-        file.part ? `Part ${file.part}` : undefined,
-        `${torrent.quality} [${torrent.tag.toUpperCase()}]`,
-      ]
-        .filter((v) => v !== undefined)
-        .join(' - ');
-
-      await childCommand(
-        oneLine`
-          cd "${seasonFolder}" &&
-          ${this.getOrganizeStrategyCommand(organizeStrategy)}
-          "../../../downloads/complete/${file.original}"
-          "${newName}${file.ext}"
-        `
-      );
-
-      const episode = season.episodes.find(
-        (k) => k.episodeNumber === file.episodeNb
-      );
-
-      if (episode) {
-        await fileDAO.save({
-          episodeId: episode.id,
-          path: `${path.join(seasonFolder, newName)}.${file.ext}`,
-        });
-      }
-    });
-
-    if (organizeStrategy === OrganizeLibraryStrategy.MOVE) {
-      await this.transmissionService.removeTorrentAndFiles(torrent.torrentHash);
-      await torrentDAO.remove(torrent);
-    }
+    const folderName = `${tvShow.title}/Season ${seasonNb}`
+    const torrentName = torrent.transmissionTorrent.name;
+    await this.addToFilebotQueue(torrentName, folderName);
 
     // set downloaded episodes to processed
     await tvEpisodeDAO.save(

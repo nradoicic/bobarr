@@ -1,0 +1,48 @@
+version: "3.6"
+
+services:
+  plex:
+    # privileged: true
+    image: lscr.io/linuxserver/plex:latest
+    container_name: bobarr-plex
+    restart: unless-stopped
+    # devices:
+    #   - /dev/dri:/dev/dri
+    environment:
+      - PUID=0
+      - PGID=0
+      - VERSION=docker
+      - UMASK_SET=0002
+      - TZ=Europe/Paris
+      # - PLEX_CLAIM=claim-y1LccWp_KPRXTjG4MWfd
+    volumes:
+      - /plex/library/media:/library
+      - /plex/packages/plex/config:/config
+    ports:
+      - 32400:32400
+      - 32400:32400/udp
+      - 3005:3005
+      - 8324:8324
+      - 32410:32410/udp
+      - 32412:32412/udp
+      - 32413:32413/udp
+      - 32414:32414/udp
+      - 32469:32469
+      - 32769:32469/udp
+      - 5354:5353/udp
+      - 1900:1900/udp
+
+  filebot:
+    container_name: bobarr-filebot
+    image: rednoah/filebot:watcher-nradoicic
+    restart: unless-stopped
+    environment:
+    - PUID=0
+    - PGID=0
+    - SETTLE_DOWN_TIME=5
+    - ACM_ACTION=move
+    - FAILED_DIR=/volume1/filebot/failed
+    volumes:
+      - /plex/packages/filebot/:/data
+      - /plex/library:/volume1
+    command: /volume1/filebot/queue/ --output /volume1/media --def deleteAfterExtract=y  clean=y  movieDB=TheMovieDB  seriesDB=TheMovieDB::TV  animeDB=TheMovieDB::TV  musicDB=ID3

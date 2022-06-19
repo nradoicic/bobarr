@@ -107,7 +107,8 @@ export class JackettService {
 
     const queries = uniq(titles)
       // support "American Dad!" like
-      // TODO: Non-english words like "Sezona" should be generated based on the original language of the show.
+      // TODO: Non-english words like "Sezona" should be generated based on the
+      // original language of the show.
       .map((title) => title.replace('!', ''))
       .map((title) => [
         `${title} S${tvSeason.seasonNumber}`,
