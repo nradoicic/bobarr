@@ -349,11 +349,11 @@ export class JackettService {
       : { label: 'unknown', score: 0 };
   }
 
-  private isLatin(title: string[]) {
+  private isLatin(title: string) {
     const hasNonLatin = /[^\p{Script=Latin}0-9 .,\/#!$%\^&\*;:{}=\-_`~()+?@]/gu;
     return !hasNonLatin.test(title);
   }
-  private toLatin(toTranslate: string[]) {
+  private toLatin(toTranslate: string) {
     // https://github.com/stojanovic/cyrillic-to-latin/blob/master/cyrillicToLatin.js
     // TODO: Use import
     const cyrillic = 'А_Б_В_Г_Д_Ђ_Е_Ё_Ж_З_И_Й_Ј_К_Л_Љ_М_Н_Њ_О_П_Р_С_Т_Ћ_У_Ф_Х_Ц_Ч_Џ_Ш_Щ_Ъ_Ы_Ь_Э_Ю_Я_а_б_в_г_д_ђ_е_ё_ж_з_и_й_ј_к_л_љ_м_н_њ_о_п_р_с_т_ћ_у_ф_х_ц_ч_џ_ш_щ_ъ_ы_ь_э_ю_я'.split('_')

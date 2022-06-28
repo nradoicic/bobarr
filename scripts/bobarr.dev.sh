@@ -17,6 +17,7 @@ cat << "EOF"
 EOF
 
 args=$1
+shift;
 
 stop_bobarr() {
   docker compose down --remove-orphans || true
@@ -41,6 +42,13 @@ elif [[ $args == 'dev' ]]; then
     -f docker-compose.plex.yml \
     -f docker-compose.dev.yml \
     up --force-recreate -d
+  after_start
+elif [[ $args == 'recreate' ]]; then
+  docker compose \
+    -f docker-compose.yml  \
+    -f docker-compose.plex.yml \
+    -f docker-compose.dev.yml \
+    up --build --force-recreate -d $@
   after_start
 elif [[ $args == 'start:vpn' ]]; then
   stop_bobarr

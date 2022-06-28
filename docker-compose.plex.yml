@@ -39,7 +39,7 @@ services:
     environment:
     - PUID=0
     - PGID=0
-    - SETTLE_DOWN_TIME=5
+    - SETTLE_DOWN_TIME=10
     - ACM_ACTION=move
     - FAILED_DIR=/volume1/filebot/failed
     volumes:

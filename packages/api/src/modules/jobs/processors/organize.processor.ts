@@ -63,23 +63,19 @@ export class OrganizeProcessor {
     return `${new Date().getTime()}-${Math.floor(Math.random() * 8999) + 1000}`;
   }
 
-  private async run(command: string[]){
+  private async run(command: string){
     this.logger.debug(command);
     await childCommand(command);
   }
 
-  private async addToFilebotQueue(torrentName: string[], folderName: string[]){
+  private async addToFilebotQueue(torrentName: string, folderName: string){
     // Filebot watch is sensitive to file creation times.
     // To make it happy, this method copies everything to a staging directory
     // first, then does a `move` on the whole directory which is fast.
     const libraryPath = `/usr/library/`;
-    // const filebotQueue = path.resolve(libraryPath, "filebot/queue/");
-    // const torrentPath = path.resolve(libraryPath, "downloads/complete/", torrentName);
     const torrentStage = path.resolve(libraryPath, "filebot/stage/", torrentName);
     const destination = path.resolve(torrentStage, this.random(), folderName);
     await this.run(`mkdir -p "${destination}"`);
-    // await this.run(`cp -r "${torrentPath}"* "${destination}"`);
-    // await this.run(`mv "${copyQueue}" "${filebotQueue}"`);
 
     // Delete the directory after 15 minutes, if it's still there.
     await new Promise(r => setTimeout(r, 15*60*1000));
@@ -117,7 +113,7 @@ export class OrganizeProcessor {
 
     await movieDAO.save({
       id: movieId,
-      state: DownloadableMediaState.PROCESSED,
+      state: DownloadableMediaState.DOWNLOADED,
     });
 
     this.logger.info('finish rename and link movie', { movieId });
@@ -164,7 +160,7 @@ export class OrganizeProcessor {
     await this.addToFilebotQueue(torrentName, folderName);
     await tvEpisodeDAO.save({
       id: episode.id,
-      state: DownloadableMediaState.PROCESSED,
+      state: DownloadableMediaState.DOWNLOADED,
     });
 
     this.logger.info('finish rename and link episode', { episodeId });
@@ -210,27 +206,12 @@ export class OrganizeProcessor {
     const torrentName = torrent.transmissionTorrent.name;
     await this.addToFilebotQueue(torrentName, folderName);
 
-    // set downloaded episodes to processed
+    // set all episodes to downloaded
     await tvEpisodeDAO.save(
       season.episodes
-        .filter((episode) =>
-          torrentFiles.some((file) => file.episodeNb === episode.episodeNumber)
-        )
         .map((episode) => ({
           id: episode.id,
-          state: DownloadableMediaState.PROCESSED,
-        }))
-    );
-
-    // set other episodes to missing
-    await tvEpisodeDAO.save(
-      season.episodes
-        .filter((episode) =>
-          torrentFiles.every((file) => file.episodeNb !== episode.episodeNumber)
-        )
-        .map((episode) => ({
-          id: episode.id,
-          state: DownloadableMediaState.MISSING,
+          state: DownloadableMediaState.DOWNLOADED,
         }))
     );
 
