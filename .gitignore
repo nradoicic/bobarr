@@ -20,6 +20,7 @@ packages/transmission/config/*
 packages/transmission/watch/*
 !packages/transmission/**/.gitkeep
 !packages/transmission/config/settings.json
+!packages/transmission/config/*.sh
 
 # vpn
 packages/vpn/*
