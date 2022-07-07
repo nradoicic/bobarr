@@ -100,6 +100,7 @@ export class JackettService {
     });
 
     const titles = [tvShow.title, enTVShow.title];
+    const year = dayjs(tvShow.releaseDate).format('YYYY');
     const translatedOriginal = this.toLatin(tvShow.originalTitle);
     if (this.isLatin(translatedOriginal)) {
       titles.push(translatedOriginal);
@@ -116,6 +117,7 @@ export class JackettService {
         `${title} Season ${formatNumber(tvSeason.seasonNumber)}`,
         `${title} Sezona ${formatNumber(tvSeason.seasonNumber)}`, 
         `${title} Saison ${formatNumber(tvSeason.seasonNumber)}`,
+        `${title} ${year}`,
         `${title} e01-e`,
       ])
       .flat();
@@ -143,11 +145,17 @@ export class JackettService {
     const enTVShow = await this.libraryService.getTVShow(tvEpisode.tvShow.id, {
       language: 'en',
     });
+    const season = await this.libraryService.getTVSeasonDetails({
+      tvShowTMDBId: tvEpisode.tvShow.tmdbId,
+      seasonNumber: tvEpisode.seasonNumber,
+    });
 
     const s = formatNumber(tvEpisode.seasonNumber);
     const e = formatNumber(tvEpisode.episodeNumber);
 
     const titles = [tvShow.title, enTVShow.title];
+    const episode = season[tvEpisode.episodeNumber];
+    const date = dayjs(episode.releaseDate).format('YYYY.MM.DD');
     const translatedOriginal = this.toLatin(tvShow.originalTitle);
     if (this.isLatin(translatedOriginal)) {
       titles.push(translatedOriginal);
@@ -161,6 +169,7 @@ export class JackettService {
         `${title} S${tvEpisode.seasonNumber}.E${e}`,
         `${title} Season ${s} Episode ${e}`,
         `${title} Saison ${s} Episode ${e}`,
+        `${title} ${date}`,
       ])
       .flat();
 
